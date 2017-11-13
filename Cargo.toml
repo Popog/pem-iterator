@@ -1,0 +1,22 @@
+[package]
+name = "pem-iterator"
+version = "0.1.0"
+authors = ["Popog"]
+description = "Iterate over PEM-encoded data"
+license = "MIT/Apache-2.0"
+repository = "https://github.com/Popog/pem-iterator"
+readme = "README.md"
+documentation = "https://docs.rs/pem-iterator/"
+keywords = ["pem", "decode", "parser", "iterator", "crypto"]
+categories = ["cryptography", "no-std", "encoding"]
+
+[dependencies]
+
+[features]
+default = ["std", "store_label"]
+std = []
+store_label = []
+
+[dev-dependencies]
+pem = "0.4"
+rand = "0.3"
