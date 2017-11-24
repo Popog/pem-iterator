@@ -6,7 +6,7 @@ use core::slice;
 #[cfg(feature = "std")]
 use core::iter::FromIterator;
 
-use {PreEncapsulationBoundaryError, Label, PemError, Void};
+use {PreEncapsulationBoundaryError, Label, PemError, Void, inc};
 use parse::{SourceError, LabelCharacters, expect, expect_begin, expect_label, get_6_bits};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -234,11 +234,9 @@ where
     pub fn new(mut stream: R) -> Result<Self, PreEncapsulationBoundaryError<E>> {
         let mut count: usize = 0;
         let (label, characters) = {
-            let mut stream = stream.by_ref().map(|a| {
-                let i = count;
-                count += 1;
-                (i, a.map_err(SourceError))
-            });
+            let mut stream = stream.by_ref().map(|r|
+                r.map(|v| (inc(&mut count), v)).map_err(SourceError)
+            );
 
             expect_begin(&mut stream)??;
 
@@ -263,11 +261,9 @@ where
 
     fn expect_footer(&mut self) -> Result<(), PemError<E>> {
         let count = &mut self.count;
-        let mut stream = self.stream.by_ref().map(|a| {
-            let i = *count;
-            *count += 1;
-            (i, a.map_err(SourceError))
-        });
+        let mut stream = self.stream.by_ref().map(|r|
+            r.map(|v| (inc(count), v)).map_err(SourceError)
+        );
 
         #[cfg(feature = "store_label")]
         {
@@ -288,32 +284,30 @@ where
 
     fn get_24_bits(&mut self) -> Result<Result<Bytes, Option<Bytes>>, PemError<E>> {
         let count = &mut self.count;
-        let mut stream = self.stream.by_ref().map(|a| {
-            let i = *count;
-            *count += 1;
-            (i, a.map_err(SourceError))
-        });
+        let mut stream = self.stream.by_ref().map(|r|
+            r.map(|v| (inc(count), v)).map_err(SourceError)
+        );
 
         // Ignore whitespace
-        let a = if let Some(a) = get_6_bits(&mut stream)?? {
+        let a = if let Some(a) = get_6_bits(&mut stream)? {
             a << 2
         } else {
             return Ok(Err(None));
         };
 
-        let (a, b) = if let Some(b) = get_6_bits(&mut stream)?? {
+        let (a, b) = if let Some(b) = get_6_bits(&mut stream)? {
             (a | (b >> 4), (b & 0b1111) << 4)
         } else {
             return Ok(Err(Some(Bytes::One([a]))));
         };
 
-        let (b, c) = if let Some(c) = get_6_bits(&mut stream)?? {
+        let (b, c) = if let Some(c) = get_6_bits(&mut stream)? {
             (b | (c >> 2), (c & 0b11) << 6)
         } else {
             return Ok(Err(Some(Bytes::Two([a, b]))));
         };
 
-        let c = if let Some(d) = get_6_bits(&mut stream)?? {
+        let c = if let Some(d) = get_6_bits(&mut stream)? {
             c | d
         } else {
             return Ok(Err(Some(Bytes::Three([a, b, c]))));

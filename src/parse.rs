@@ -1,4 +1,4 @@
-use {ParseError, Label};
+use {ParseError, PemError, Label};
 
 #[cfg(all(feature = "store_label", not(feature = "std")))]
 use MAX_LABEL_SIZE;
@@ -40,15 +40,14 @@ impl From<LabelCharacters> for usize {
 
 pub fn expect<E>(
     expected: &mut Iterator<Item = char>,
-    stream: &mut Iterator<Item = (usize, Result<char, SourceError<E>>)>,
+    stream: &mut Iterator<Item = Result<(usize, char), SourceError<E>>>,
 ) -> Result<Result<(), SourceError<E>>, ExpectedError> {
     use self::ExpectedError::*;
 
     for expected in expected {
-        let (location, found) = stream.next().ok_or(MissingExpected(expected))?;
-        match found {
+        match stream.next().ok_or(MissingExpected(expected))? {
             Err(e) => return Ok(Err(e)),
-            Ok(found) => {
+            Ok((location, found)) => {
                 if expected != found {
                     return Err(Mismatch {
                         expected,
@@ -63,18 +62,18 @@ pub fn expect<E>(
 }
 
 pub fn expect_begin<E>(
-    stream: &mut Iterator<Item = (usize, Result<char, SourceError<E>>)>,
+    stream: &mut Iterator<Item = Result<(usize, char), SourceError<E>>>,
 ) -> Result<Result<(), SourceError<E>>, ExpectedError> {
     // eat all the whitespace and the BEGINning of the header
     expect(
         &mut "-----BEGIN ".chars(),
-        &mut stream.skip_while(|c| c.1.as_ref().ok().map_or(false, is_whitespace)),
+        &mut stream.skip_while(result_is_whitespace),
     )
 }
 
 #[cfg(all(feature = "store_label", not(feature = "std")))]
 pub fn expect_label<E>(
-    stream: &mut Iterator<Item = (usize, Result<char, SourceError<E>>)>,
+    stream: &mut Iterator<Item = Result<(usize, char), SourceError<E>>>,
 ) -> Result<Result<(Label, LabelCharacters), SourceError<E>>, LabelError> {
     let mut prev_dash = false;
     let mut label = Label {
@@ -82,8 +81,8 @@ pub fn expect_label<E>(
         len: 0,
     };
     let mut characters = 0;
-    for (location, c) in stream {
-        let c = match c {
+    for c in stream {
+        let (location, c) = match c {
             Ok(c) => c,
             Err(e) => return Ok(Err(e)),
         };
@@ -125,16 +124,16 @@ pub fn expect_label<E>(
 
 #[cfg(all(feature = "store_label", feature = "std"))]
 pub fn expect_label<E>(
-    stream: &mut Iterator<Item = (usize, Result<char, SourceError<E>>)>,
+    stream: &mut Iterator<Item = Result<(usize, char), SourceError<E>>>,
 ) -> Result<Result<(Label, LabelCharacters), SourceError<E>>, LabelError> {
     use core::mem::replace;
     let mut prev_dash = false;
     let mut characters = 0;
     let mut v: Result<Label, _> = stream
         .take_while(|c| {
-            c.1.as_ref().ok().map_or(true, |c| if !replace(
+            c.as_ref().ok().map_or(true, |c| if !replace(
                 &mut prev_dash,
-                *c == '-',
+                c.1 == '-',
             ) || !prev_dash
             {
                 characters += 1;
@@ -143,7 +142,7 @@ pub fn expect_label<E>(
                 false
             })
         })
-        .map(|(_, c)| c)
+        .map(|r| r.map(|(_, c)| c))
         .collect();
     // Remove the trailing '-'
     if let Ok(v) = v.as_mut() {
@@ -155,62 +154,61 @@ pub fn expect_label<E>(
 
 #[cfg(not(feature = "store_label"))]
 pub fn expect_label<E>(
-    stream: &mut Iterator<Item = (usize, Result<char, SourceError<E>>)>,
+    stream: &mut Iterator<Item = Result<(usize, char), SourceError<E>>>,
 ) -> Result<Result<(Label, LabelCharacters), SourceError<E>>, LabelError> {
     use core::mem::replace;
     let mut prev_dash = true;
     Ok(
         stream
             .take_while(|c| {
-                c.1.as_ref().ok().map_or(true, |c| {
-                    !replace(&mut prev_dash, *c == '-') || !prev_dash
+                c.as_ref().ok().map_or(true, |c| {
+                    !replace(&mut prev_dash, c.1 == '-') || !prev_dash
                 })
             })
-            .filter_map(|(_, c)| c.err().map(Err))
+            .filter_map(|c| c.err().map(Err))
             .next()
             .unwrap_or(Ok(((), LabelCharacters))),
     )
 }
 
 pub fn get_6_bits<E>(
-    stream: &mut Iterator<Item = (usize, Result<char, SourceError<E>>)>,
-) -> Result<Result<Option<u8>, SourceError<E>>, ParseError> {
+    stream: &mut Iterator<Item = Result<(usize, char), SourceError<E>>>,
+) -> Result<Option<u8>, PemError<E>> {
     use self::ParseError::*;
 
     // Ignore '=' and whitespace
-    fn ignore(c: &char) -> bool {
-        *c != '=' && !is_whitespace(c)
+    fn ignore(c: &(usize, char)) -> bool {
+        c.1 != '=' && !is_whitespace(c)
     }
-    let mut stream = stream.filter(|c| c.1.as_ref().ok().map_or(true, ignore));
+    let mut stream = stream.filter(|c| c.as_ref().map(ignore).unwrap_or(true));
 
     // If the stream ends without a footer, complain
-    let (_, c) = stream.next().ok_or(MissingExpected('-'))?;
-
-    let c = match c {
-        Ok(c) => c,
-        Err(e) => return Ok(Err(e)),
-    };
+    let (_, c) = stream.next().ok_or(MissingExpected('-'))??;
 
     let (offset, base) = match c {
-        '-' => return Ok(Ok(None)),
+        '-' => return Ok(None),
         'A'...'Z' => (0, 'A'),
         'a'...'z' => (26, 'a'),
         '0'...'9' => (52, '0'),
         '+' => (62, '+'),
         '/' => (63, '/'),
-        _ => return Err(InvalidCharacter(c)),
+        _ => return Err(PemError::ParseError(InvalidCharacter(c))),
     };
 
-    Ok(Ok(Some((offset + c as u32 - base as u32) as u8)))
+    Ok(Some((offset + c as u32 - base as u32) as u8))
+}
+
+pub fn result_is_whitespace<E>(r: &Result<(usize, char), SourceError<E>>) -> bool {
+    r.as_ref().map(is_whitespace).unwrap_or(false)
 }
 
 #[cfg(feature = "std")]
-fn is_whitespace(c: &char) -> bool {
+pub fn is_whitespace(&(_, ref c): &(usize, char)) -> bool {
     c.is_whitespace()
 }
 
 #[cfg(not(feature = "std"))]
-fn is_whitespace(c: &char) -> bool {
+pub fn is_whitespace(&(_, ref c): &(usize, char)) -> bool {
     fn trie_range_leaf(c: u32, bitmap_chunk: u64) -> bool {
         ((bitmap_chunk >> (c & 63)) & 1) != 0
     }

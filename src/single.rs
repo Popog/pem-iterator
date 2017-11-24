@@ -1,7 +1,8 @@
 use core::marker::PhantomData;
 use core::iter::{Map, once};
 
-use {PreEncapsulationBoundaryError, Label, PemError, ParseError, Void};
+
+use {PreEncapsulationBoundaryError, Label, PemError, ParseError, Void, inc};
 use parse::{SourceError, LabelCharacters, expect, expect_begin, expect_label, get_6_bits};
 
 pub struct Pem<E, R> {
@@ -58,11 +59,9 @@ where
     pub fn new(mut stream: R) -> Result<Self, PreEncapsulationBoundaryError<E>> {
         let mut count: usize = 0;
         let (label, characters) = {
-            let mut stream = stream.by_ref().map(|a| {
-                let i = count;
-                count += 1;
-                (i, a.map_err(SourceError))
-            });
+            let mut stream = stream.by_ref().map(|r|
+                r.map(|v| (inc(&mut count), v)).map_err(SourceError)
+            );
 
             expect_begin(&mut stream)??;
 
@@ -93,11 +92,9 @@ where
         mut peb: PostEncapsulationBoundary,
     ) -> Result<Result<(), SourceError<E>>, ParseError> {
         let count = &mut self.count;
-        let mut stream = self.stream.by_ref().map(|a| {
-            let i = *count;
-            *count += 1;
-            (i, a.map_err(SourceError))
-        });
+        let mut stream = self.stream.by_ref().map(|r|
+            r.map(|v| (inc(count), v)).map_err(SourceError)
+        );
 
         loop {
             match peb {
@@ -152,12 +149,10 @@ where
 
     fn get_6_bits(&mut self) -> Result<Option<u8>, PemError<E>> {
         let count = &mut self.count;
-        let mut stream = self.stream.by_ref().map(|a| {
-            let i = *count;
-            *count += 1;
-            (i, a.map_err(SourceError))
-        });
-        Ok(get_6_bits(&mut stream)??)
+        let mut stream = self.stream.by_ref().map(|r|
+            r.map(|v| (inc(count), v)).map_err(SourceError)
+        );
+        get_6_bits(&mut stream)
     }
 
     #[cfg(feature = "store_label")]

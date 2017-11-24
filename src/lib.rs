@@ -17,6 +17,11 @@ pub use single::Pem as Single;
 pub use errors::{ParseError, PemError, PreEncapsulationBoundaryError, Void};
 
 
+fn inc(v: &mut usize) -> usize {
+    let i = *v;
+    *v += 1;
+    i
+}
 
 #[cfg(not(feature = "store_label"))]
 type Label = ();
