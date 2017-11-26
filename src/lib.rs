@@ -1,69 +1,255 @@
+#![cfg_attr(feature = "generators", feature(generators, generator_trait, conservative_impl_trait))]
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "std")]
 extern crate core;
 
-#[cfg(all(feature = "store_label", not(feature = "std")))]
-use core::fmt;
+pub mod body;
+pub mod boundary;
 
-mod parse;
-mod errors;
-pub mod chunked;
-pub mod single;
+#[cfg(feature = "generators")]
+pub mod generator;
 
+/// Will be replaced with never_type `!` (rust/rust-lang#35121) 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)] 
+pub enum Void {}
 
-pub use chunked::Pem as Chunked;
-pub use single::Pem as Single;
-pub use errors::{ParseError, PemError, PreEncapsulationBoundaryError, Void};
-
-
-fn inc(v: &mut usize) -> usize {
-    let i = *v;
-    *v += 1;
-    i
+fn map_chars<Loc>(c: (Loc, char)) -> Result<(Loc, char), Void> {
+    Ok(c)
 }
-
-#[cfg(not(feature = "store_label"))]
-type Label = ();
-
-#[cfg(all(feature = "store_label", feature = "std"))]
-use std::string::String as Label;
-
-#[cfg(all(feature = "store_label", not(feature = "std")))]
-const MAX_LABEL_SIZE: usize = 64;
-
-#[cfg(all(feature = "store_label", not(feature = "std")))]
-pub struct Label {
-    content: [u8; MAX_LABEL_SIZE],
-    len: usize,
+ 
+#[cfg(feature = "std")] 
+fn is_whitespace<Loc>(&(_, ref c): &(Loc, char)) -> bool { 
+    c.is_whitespace() 
 }
-
-#[cfg(all(feature = "store_label", not(feature = "std")))]
-impl fmt::Debug for Label {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.as_str().fmt(f)
-    }
-}
-
-#[cfg(all(feature = "store_label", not(feature = "std")))]
-impl PartialEq for Label {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_str() == other.as_str()
-    }
-}
-
-#[cfg(all(feature = "store_label", not(feature = "std")))]
-impl Label {
-    fn as_str(&self) -> &str {
-        core::str::from_utf8(&self.content[0..self.len]).unwrap()
-    }
-
-    fn add(&mut self, c: char) -> bool {
-        if self.len + c.len_utf8() > MAX_LABEL_SIZE {
-            false
-        } else {
-            self.len += c.encode_utf8(&mut self.content[self.len..]).len();
-            true
-        }
-    }
-}
+ 
+#[cfg(not(feature = "std"))] 
+fn is_whitespace<Loc>(&(_, ref c): &(Loc, char)) -> bool { 
+    fn trie_range_leaf(c: u32, bitmap_chunk: u64) -> bool { 
+        ((bitmap_chunk >> (c & 63)) & 1) != 0 
+    } 
+ 
+    pub struct SmallBoolTrie { 
+        r1: [u8; 193], // first level 
+        r2: [u64; 6], // leaves 
+    } 
+ 
+    impl SmallBoolTrie { 
+        fn lookup(&self, c: char) -> bool { 
+            let c = c as u32; 
+            match self.r1.get((c >> 6) as usize) { 
+                Some(&child) => trie_range_leaf(c, self.r2[child as usize]), 
+                None => false, 
+            } 
+        } 
+    } 
+ 
+    const WHITE_SPACE_TABLE: &'static SmallBoolTrie = &SmallBoolTrie { 
+        r1: [ 
+            0, 
+            1, 
+            2, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            3, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            4, 
+            5, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            1, 
+            3, 
+        ], 
+        r2: [ 
+            0x0000000100003e00, 
+            0x0000000000000000, 
+            0x0000000100000020, 
+            0x0000000000000001, 
+            0x00008300000007ff, 
+            0x0000000080000000, 
+        ], 
+    }; 
+ 
+    WHITE_SPACE_TABLE.lookup(*c) 
+} 
